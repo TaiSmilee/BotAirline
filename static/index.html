@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chatbot Tìm Chuyến Bay</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin: 50px;
+            background-color: #f4f4f9;
+        }
+        #chatbox {
+            width: 60%;
+            max-width: 600px;
+            height: 400px;
+            overflow-y: auto;
+            border: 1px solid #ccc;
+            padding: 15px;
+            border-radius: 10px;
+            background-color: #fff;
+            text-align: left;
+            margin: auto;
+            box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);
+        }
+        .bot, .user {
+            padding: 10px 15px;
+            border-radius: 20px;
+            margin: 5px 0;
+            display: inline-block;
+            max-width: 80%;
+            word-wrap: break-word;
+        }
+        .bot {
+            background-color: #d1e7dd;
+            align-self: flex-start;
+        }
+        .user {
+            background-color: #f8d7da;
+            align-self: flex-end;
+            text-align: right;
+            float: right;
+        }
+        #inputContainer {
+            margin-top: 10px;
+            display: flex;
+            justify-content: center;
+        }
+        input {
+            padding: 10px;
+            width: 50%;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+            outline: none;
+        }
+        button {
+            padding: 10px 15px;
+            margin-left: 5px;
+            background-color: #28a745;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #218838;
+        }
+    </style>
+</head>
+<body>
+    <h2>Chatbot Tìm Chuyến Bay</h2>
+    <div id="chatbox">
+        <div class="bot">✈️ Xin chào! Tôi sẽ giúp bạn tìm chuyến bay. Bạn muốn bay từ đâu?</div>
+    </div>
+    <div id="inputContainer">
+        <input type="text" id="userInput" placeholder="Nhập câu trả lời..." onkeypress="handleKeyPress(event)">
+        <button onclick="processInput()">Gửi</button>
+    </div>
+
+    <script>
+        let step = 0;
+        let flightData = {};
+        const chatbox = document.getElementById("chatbox");
+        const userInput = document.getElementById("userInput");
+
+        function addMessage(text, sender) {
+            const messageDiv = document.createElement("div");
+            messageDiv.classList.add(sender);
+            messageDiv.innerText = text;
+            chatbox.appendChild(messageDiv);
+            chatbox.scrollTop = chatbox.scrollHeight;
+        }
+
+        function handleKeyPress(event) {
+            if (event.key === "Enter") {
+                processInput();
+            }
+        }
+
+        function processInput() {
+            const input = userInput.value.trim();
+            if (!input) return;
+            addMessage(input, "user");
+            userInput.value = "";
+
+            switch (step) {
+                case 0:
+                    flightData.from = input;
+                    addMessage("Bạn muốn bay đến đâu?", "bot");
+                    step++;
+                    break;
+                case 1:
+                    flightData.to = input;
+                    addMessage("Bạn muốn bay vào ngày nào? (YYYY-MM-DD)", "bot");
+                    step++;
+                    break;
+                case 2:
+                    if (!/\d{4}-\d{2}-\d{2}/.test(input)) {
+                        addMessage("❌ Định dạng ngày không hợp lệ! Vui lòng nhập lại (YYYY-MM-DD).", "bot");
+                        return;
+                    }
+                    flightData.date = input;
+                    fetchFlights();
+                    step++;
+                    break;
+                default:
+                    addMessage("Bạn có muốn tìm chuyến bay khác không? (Nhập 'có' để tiếp tục)", "bot");
+                    if (input.toLowerCase() === "có") {
+                        step = 0;
+                        addMessage("Bạn muốn bay từ đâu?", "bot");
+                    }
+            }
+        }
+
+        function fetchFlights() {
+            const apiUrl = `http://127.0.0.1:8000/search_flight?from_city=${flightData.from}&to_city=${flightData.to}&date=${flightData.date}`;
+            addMessage("⏳ Đang tìm chuyến bay...", "bot");
+
+            fetch(apiUrl)
+                .then(response => response.json())
+                .then(data => {
+                    if (!data.flights || data.flights.length === 0) {
+                        addMessage("❌ Không tìm thấy chuyến bay nào phù hợp.", "bot");
+                        return;
+                    }
+                    data.flights.forEach(flight => {
+                        addMessage(`✈️ Hãng: ${flight.carrier} - Chuyến bay: ${flight.flight_number}\n🛫 Điểm đi: ${flight.departure} (${flight.departure_time})\n🛬 Điểm đến: ${flight.arrival} (${flight.arrival_time})\n⏳ Thời gian bay: ${flight.duration}\n💰 Giá vé: ${flight.price} VND`, "bot");
+                    });
+                    addMessage("Bạn có muốn tìm chuyến bay khác không? (Nhập 'có' để tiếp tục)", "bot");
+                })
+                .catch(error => {
+                    console.error("Lỗi API:", error);
+                    addMessage("❌ Lỗi khi lấy dữ liệu chuyến bay. Vui lòng thử lại!", "bot");
+                });
+        }
+    </script>
+</body>
+</html>

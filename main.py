@@ -1,67 +1,76 @@
-from flask import Flask, render_template, request, jsonify
-from flask_cors import CORS
+from fastapi import FastAPI, Query
 import requests
+import uvicorn
+import webbrowser
+import threading
+from fastapi.staticfiles import StaticFiles
 
-app = Flask(__name__)
-CORS(app, supports_credentials=True)
+app = FastAPI()
 
-# API Keys
-AVIATION_API_KEY = "7637add89f019adafaf3d96030a66f6d"
-SKYSCANNER_API_KEY = "01fb0a41d2msh011b5606760bb91p1617b0jsn910dff2ba870"
+AMADEUS_API_KEY = "r9OvcpKZGVUkqvcqxf1QP3bHjZdx87nT"
+AMADEUS_API_SECRET = "9ISfyagdCA1F09gr"
 
-# Danh sách sân bay hợp lệ
-VALID_AIRPORTS = {"HAN": "Nội Bài", "SGN": "Tân Sơn Nhất", "DAD": "Đà Nẵng"}
-VALID_TIMES = ["SÁNG", "CHIỀU", "TỐI"]
+def open_browser():
+    """Mở giao diện UI trên trình duyệt mặc định sau khi server khởi động"""
+    webbrowser.open("http://127.0.0.1:8000")
 
-# Bộ nhớ tạm cho người dùng
-user_sessions = {}
+def get_amadeus_access_token():
+    url = "https://test.api.amadeus.com/v1/security/oauth2/token"
+    payload = {
+        "grant_type": "client_credentials",
+        "client_id": AMADEUS_API_KEY,
+        "client_secret": AMADEUS_API_SECRET
+    }
+    response = requests.post(url, data=payload)
+    return response.json().get("access_token")
 
-@app.route("/")
-def home():
-    return render_template("index.html")
+@app.get("/search_flight")
+def search_flight(
+    from_city: str = Query(..., description="Điểm khởi hành"),
+    to_city: str = Query(..., description="Điểm đến"),
+    date: str = Query(..., description="Ngày bay (YYYY-MM-DD)")
+):
+    token = get_amadeus_access_token()
+    headers = {"Authorization": f"Bearer {token}"}
+    url = "https://test.api.amadeus.com/v2/shopping/flight-offers"
+    params = {
+        "originLocationCode": from_city,
+        "destinationLocationCode": to_city,
+        "departureDate": date,
+        "adults": 1,
+        "currencyCode": "VND"
+    }
+    response = requests.get(url, headers=headers, params=params)
+    data = response.json()
 
-@app.route("/chat", methods=["POST"])
-def chat():
-    user_id = request.json.get("user_id")
-    user_message = request.json.get("message", "").strip().upper()
+    flights = []
+    for flight in data.get("data", []):
+        itinerary = flight["itineraries"][0]
+        segment = itinerary["segments"][0]
+        flight_info = {
+            "id": flight["id"],
+            "carrier": segment["carrierCode"],
+            "flight_number": segment["number"],
+            "departure": segment["departure"]["iataCode"],
+            "departure_time": segment["departure"]["at"],
+            "arrival": segment["arrival"]["iataCode"],
+            "arrival_time": segment["arrival"]["at"],
+            "duration": itinerary["duration"],
+            "stops": segment["numberOfStops"],
+            "price": float(flight["price"]["grandTotal"])  # Chuyển thành float để dễ sắp xếp
+        }
+        flights.append(flight_info)
 
-    if not user_id or not user_message:
-        return jsonify({"bot": "Xin hãy nhập thông tin hợp lệ!"})
+    # **Sắp xếp danh sách theo giá vé từ thấp đến cao**
+    flights.sort(key=lambda x: x["price"])
 
-    # Kiểm tra nếu user chưa có session
-    if user_id not in user_sessions:
-        user_sessions[user_id] = {"step": 1}
+    # **Chỉ lấy tối đa 5 chuyến bay rẻ nhất**
+    top_flights = flights[:5] if flights else []
 
-    session = user_sessions[user_id]
+    return {"flights": top_flights if top_flights else "Không tìm thấy chuyến bay phù hợp"}
 
-    # === Xử lý các bước chatbot ===
-    if session["step"] == 1:
-        if user_message not in VALID_AIRPORTS:
-            return jsonify({"bot": "Vui lòng nhập mã sân bay hợp lệ (HAN, SGN, DAD)."})
-        session["departure"] = user_message
-        session["step"] += 1
-        return jsonify({"bot": "Bạn muốn bay đến đâu? (HAN, SGN, DAD)"})
-
-    elif session["step"] == 2:
-        if user_message not in VALID_AIRPORTS or user_message == session["departure"]:
-            return jsonify({"bot": "Vui lòng nhập điểm đến khác điểm đi (HAN, SGN, DAD)."})
-        session["arrival"] = user_message
-        session["step"] += 1
-        return jsonify({"bot": "Bạn muốn bay vào buổi nào? (Sáng, Chiều, Tối)"})
-
-    elif session["step"] == 3:
-        if user_message not in VALID_TIMES:
-            return jsonify({"bot": "Vui lòng nhập 'Sáng', 'Chiều' hoặc 'Tối'."})
-        session["time"] = user_message
-        session["step"] += 1
-        return jsonify({"bot": "Bạn muốn xem tất cả chuyến bay hay chỉ chuyến rẻ nhất? (Tất cả / Chuyến bay rẻ nhất)"})
-
-    elif session["step"] == 4:
-        session["option"] = user_message.lower()
-        session["step"] += 1
-        return jsonify({"bot": f"Đang tìm chuyến bay từ {session['departure']} đến {session['arrival']} vào buổi {session['time']}..."})
-
-    return jsonify({"bot": "Xin lỗi, tôi không hiểu câu hỏi của bạn!"})
+app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    threading.Timer(1.5, open_browser).start()
+    uvicorn.run(app, host="0.0.0.0", port=8000)
