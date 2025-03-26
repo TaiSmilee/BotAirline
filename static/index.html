@@ -134,7 +134,7 @@
         }
 
         function fetchFlights() {
-            const apiUrl = `http://127.0.0.1:8000/search_flight?from_city=${flightData.from}&to_city=${flightData.to}&date=${flightData.date}`;
+            const apiUrl = `/search_flight?from_city=${flightData.from}&to_city=${flightData.to}&date=${flightData.date}`;
             addMessage("⏳ Đang tìm chuyến bay...", "bot");
 
             fetch(apiUrl)
